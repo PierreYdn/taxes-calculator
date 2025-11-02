@@ -2,15 +2,111 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# Configuration de la page
+# ============================================================================
+# CONFIGURATION DE LA PAGE ET STYLES RESPONSIVES
+# ============================================================================
+
 st.set_page_config(
     page_title="Calculateur d'Impôts",
     page_icon="💰",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# === BARÈME D'IMPOSITION 2024 (France) ===
-# Les tranches sont définies pour 1 part fiscale
+# CSS pour adaptation mobile/desktop
+st.markdown("""
+    <style>
+    /* Variables globales */
+    :root {
+        --mobile-breakpoint: 768px;
+    }
+
+    /* Adaptation générale */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+
+    /* Mobile */
+    @media only screen and (max-width: 768px) {
+        .block-container {
+            padding: 1rem 0.5rem;
+        }
+
+        h1 {
+            font-size: 1.8rem !important;
+            margin-bottom: 1rem !important;
+        }
+
+        h2 {
+            font-size: 1.4rem !important;
+            margin-top: 1.5rem !important;
+        }
+
+        h3 {
+            font-size: 1.1rem !important;
+            margin-top: 0.5rem !important;
+        }
+
+        /* Ajuster les métriques */
+        [data-testid="stMetricValue"] {
+            font-size: 1.1rem !important;
+        }
+
+        [data-testid="stMetricLabel"] {
+            font-size: 0.9rem !important;
+        }
+
+        /* Inputs plus grands sur mobile */
+        input, select, textarea {
+            font-size: 16px !important;
+            padding: 0.5rem !important;
+        }
+
+        /* Boutons plus espacés */
+        .stButton button {
+            width: 100%;
+            padding: 0.75rem !important;
+            font-size: 1rem !important;
+        }
+
+        /* Tables adaptées */
+        .dataframe {
+            font-size: 0.85rem !important;
+        }
+
+        /* Espacements réduits */
+        .element-container {
+            margin-bottom: 0.5rem !important;
+        }
+    }
+
+    /* Desktop */
+    @media only screen and (min-width: 769px) {
+        .block-container {
+            max-width: 1400px;
+            padding: 2rem 3rem;
+        }
+    }
+
+    /* Amélioration des expanders */
+    .streamlit-expanderHeader {
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+    }
+
+    /* Alertes plus visibles */
+    .stAlert {
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ============================================================================
+# BARÈME D'IMPOSITION 2024
+# ============================================================================
+
 TRANCHES_IMPOSITION = [
     {"min": 0, "max": 11294, "taux": 0.00, "label": "0%"},
     {"min": 11294, "max": 28797, "taux": 0.11, "label": "11%"},
@@ -19,40 +115,34 @@ TRANCHES_IMPOSITION = [
     {"min": 177106, "max": float('inf'), "taux": 0.45, "label": "45%"}
 ]
 
+MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+        "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+
+
+# ============================================================================
+# FONCTIONS DE CALCUL
+# ============================================================================
 
 def calculer_impot(revenu_imposable, nb_parts=1):
-    """
-    Calcule l'impôt sur le revenu selon le barème progressif français
-
-    Args:
-        revenu_imposable: Montant du revenu imposable (après abattement 10%)
-        nb_parts: Nombre de parts fiscales
-
-    Returns:
-        dict: Détails du calcul (impôt total et détail par tranche)
-    """
-    # Calculer le quotient familial
+    """Calcule l'impôt sur le revenu selon le barème progressif français"""
     quotient = revenu_imposable / nb_parts
-
     impot_par_part = 0
     detail_tranches = []
 
-    for i, tranche in enumerate(TRANCHES_IMPOSITION):
+    for tranche in TRANCHES_IMPOSITION:
         if quotient > tranche["min"]:
-            # Montant imposable dans cette tranche
             base_tranche = min(quotient, tranche["max"]) - tranche["min"]
             impot_tranche = base_tranche * tranche["taux"]
             impot_par_part += impot_tranche
 
             detail_tranches.append({
-                "tranche": f"{tranche['min']:,.0f} € à {tranche['max']:,.0f} €" if tranche['max'] != float(
-                    'inf') else f"Plus de {tranche['min']:,.0f} €",
+                "tranche": f"{tranche['min']:,.0f} € à {tranche['max']:,.0f} €" if tranche['max'] != float('inf')
+                else f"Plus de {tranche['min']:,.0f} €",
                 "taux": tranche["label"],
                 "base": base_tranche,
                 "impot": impot_tranche
             })
 
-    # Impôt total (reconstitution avec le nombre de parts)
     impot_total = impot_par_part * nb_parts
 
     return {
@@ -68,218 +158,247 @@ def formater_euros(montant):
     return f"{montant:,.2f} €".replace(",", " ")
 
 
-def reinitialiser():
-    """Réinitialise tous les champs"""
-    # Réinitialiser les revenus mensuels
-    for i in range(12):
-        if f"mois_{i}" in st.session_state:
-            st.session_state[f"mois_{i}"] = 0.0
-        if f"impot_mois_{i}" in st.session_state:
-            st.session_state[f"impot_mois_{i}"] = 0.0
+def initialiser_session_state():
+    """Initialise les variables de session"""
+    if 'revenus_mensuels' not in st.session_state:
+        st.session_state.revenus_mensuels = [0.0] * 12
+    if 'impots_mensuels' not in st.session_state:
+        st.session_state.impots_mensuels = [0.0] * 12
+    if 'revenus_exceptionnels' not in st.session_state:
+        st.session_state.revenus_exceptionnels = []
+    if 'mode_affichage' not in st.session_state:
+        # Détection automatique du mode (approximatif)
+        st.session_state.mode_affichage = "auto"
 
-    # Réinitialiser les revenus exceptionnels
+
+def reinitialiser():
+    """Réinitialise toutes les données"""
+    st.session_state.revenus_mensuels = [0.0] * 12
+    st.session_state.impots_mensuels = [0.0] * 12
     st.session_state.revenus_exceptionnels = []
 
-    # Réinitialiser le champ de saisie nouveau revenu
-    if "nouveau_exceptionnel" in st.session_state:
-        st.session_state["nouveau_exceptionnel"] = 0.0
 
+# ============================================================================
+# INTERFACE PRINCIPALE
+# ============================================================================
 
-# === INTERFACE PRINCIPALE ===
-st.title("💰 Calculateur d'Impôts sur le Revenu")
+# Initialisation
+initialiser_session_state()
+
+# En-tête
+st.title("💰 Calculateur d'Impôts")
+st.caption("Calculez votre impôt sur le revenu 2024")
 st.markdown("---")
 
-# === SECTION 1: Configuration ===
-st.header("⚙️ Configuration")
+# ============================================================================
+# SECTION 1: CONFIGURATION
+# ============================================================================
 
-col1, col2 = st.columns(2)
-with col1:
-    nb_parts = st.number_input(
-        "Nombre de parts fiscales",
-        min_value=1.0,
-        max_value=10.0,
-        value=1.0,
-        step=0.5,
-        help="1 part = célibataire, 2 parts = couple, +0.5 par enfant..."
-    )
+with st.expander("⚙️ Configuration", expanded=True):
+    col1, col2, col3 = st.columns([2, 2, 1])
 
-with col2:
-    annee = st.selectbox(
-        "Année d'imposition",
-        [2024, 2023, 2022],
-        help="Barème applicable (actuellement 2024)"
-    )
+    with col1:
+        nb_parts = st.number_input(
+            "Nombre de parts fiscales",
+            min_value=1.0,
+            max_value=10.0,
+            value=1.0,
+            step=0.5,
+            help="1 part = célibataire, 2 parts = couple, +0.5 par enfant"
+        )
+
+    with col2:
+        annee = st.selectbox(
+            "Année d'imposition",
+            [2024, 2023, 2022],
+            help="Barème applicable"
+        )
+
+    with col3:
+        mode = st.selectbox(
+            "Affichage",
+            ["Auto", "Mobile", "Desktop"],
+            help="Mode d'affichage des mois"
+        )
+
+# ============================================================================
+# SECTION 2: REVENUS MENSUELS
+# ============================================================================
 
 st.markdown("---")
+st.header("📅 Revenus Mensuels")
 
-# === SECTION 2: Revenus mensuels et impôts prélevés ===
-st.header("📅 Revenus Mensuels et Prélèvements à la Source")
-
-# Initialiser les revenus mensuels et impôts dans session_state
-if 'revenus_mensuels' not in st.session_state:
-    st.session_state.revenus_mensuels = [0.0] * 12
-if 'impots_mensuels' not in st.session_state:
-    st.session_state.impots_mensuels = [0.0] * 12
-
-# Afficher 3 colonnes de 4 mois chacune
-mois = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-        "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+# Déterminer le mode d'affichage
+afficher_mode_mobile = (mode == "Mobile") or (mode == "Auto")
 
 # Légende
-col_legend1, col_legend2 = st.columns(2)
-with col_legend1:
-    st.markdown("**💵 Revenu net (avant prélèvement)**")
-with col_legend2:
-    st.markdown("**🏦 Impôt prélevé à la source**")
+col_leg1, col_leg2 = st.columns(2)
+with col_leg1:
+    st.markdown("**💵 Revenu net**")
+with col_leg2:
+    st.markdown("**🏦 Impôt prélevé**")
 
-st.markdown("---")
+st.markdown("")
 
-cols = st.columns(3)
-for i in range(3):
-    with cols[i]:
-        for j in range(4):
-            mois_index = i * 4 + j
-
-            # Afficher le nom du mois
-            st.markdown(f"### {mois[mois_index]}")
-
-            # Deux colonnes pour revenu et impôt
+# Affichage des mois
+if afficher_mode_mobile:
+    # MODE MOBILE: 1 colonne, tous les mois
+    for i in range(12):
+        with st.container():
+            st.markdown(f"**{MOIS[i]}**")
             col_rev, col_imp = st.columns(2)
 
             with col_rev:
-                valeur_revenu = st.number_input(
+                st.session_state.revenus_mensuels[i] = st.number_input(
                     "Revenu",
                     min_value=0.0,
-                    value=0.0,
+                    value=st.session_state.revenus_mensuels[i],
                     step=100.0,
-                    key=f"mois_{mois_index}",
+                    key=f"rev_{i}",
                     format="%.2f",
                     label_visibility="collapsed"
                 )
-                st.session_state.revenus_mensuels[mois_index] = valeur_revenu
 
             with col_imp:
-                valeur_impot = st.number_input(
+                st.session_state.impots_mensuels[i] = st.number_input(
                     "Impôt",
                     min_value=0.0,
-                    value=0.0,
+                    value=st.session_state.impots_mensuels[i],
                     step=10.0,
-                    key=f"impot_mois_{mois_index}",
+                    key=f"imp_{i}",
                     format="%.2f",
                     label_visibility="collapsed"
                 )
-                st.session_state.impots_mensuels[mois_index] = valeur_impot
+else:
+    # MODE DESKTOP: 3 colonnes de 4 mois
+    cols = st.columns(3)
+    for i in range(3):
+        with cols[i]:
+            for j in range(4):
+                mois_idx = i * 4 + j
+                st.markdown(f"**{MOIS[mois_idx]}**")
 
-            st.markdown("---")
+                col_rev, col_imp = st.columns(2)
+
+                with col_rev:
+                    st.session_state.revenus_mensuels[mois_idx] = st.number_input(
+                        "Revenu",
+                        min_value=0.0,
+                        value=st.session_state.revenus_mensuels[mois_idx],
+                        step=100.0,
+                        key=f"rev_{mois_idx}",
+                        format="%.2f",
+                        label_visibility="collapsed"
+                    )
+
+                with col_imp:
+                    st.session_state.impots_mensuels[mois_idx] = st.number_input(
+                        "Impôt",
+                        min_value=0.0,
+                        value=st.session_state.impots_mensuels[mois_idx],
+                        step=10.0,
+                        key=f"imp_{mois_idx}",
+                        format="%.2f",
+                        label_visibility="collapsed"
+                    )
+
+                if j < 3:
+                    st.markdown("")
+
+# ============================================================================
+# SECTION 3: REVENUS EXCEPTIONNELS
+# ============================================================================
 
 st.markdown("---")
+st.header("🎁 Revenus Exceptionnels")
+st.caption("Primes, bonus, revenus complémentaires imposables...")
 
-# === SECTION 3: Revenus exceptionnels ===
-st.header("🎁 Revenus Exceptionnels Imposables")
-
-st.markdown("*Primes, bonus, revenus complémentaires imposables...*")
-
-# Initialiser les revenus exceptionnels dans session_state
-if 'revenus_exceptionnels' not in st.session_state:
-    st.session_state.revenus_exceptionnels = []
-
-# Bouton pour ajouter un revenu exceptionnel
 col1, col2 = st.columns([3, 1])
 with col1:
     nouveau_montant = st.number_input(
-        "Montant du revenu exceptionnel (net)",
+        "Montant du revenu exceptionnel",
         min_value=0.0,
         value=0.0,
         step=100.0,
-        key="nouveau_exceptionnel"
+        key="nouveau_except"
     )
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("➕ Ajouter", type="primary"):
+    if st.button("➕ Ajouter", type="primary", use_container_width=True):
         if nouveau_montant > 0:
             st.session_state.revenus_exceptionnels.append(nouveau_montant)
-            st.session_state["nouveau_exceptionnel"] = 0.0
-            st.success(f"Ajouté: {formater_euros(nouveau_montant)}")
+            st.success(f"✅ Ajouté: {formater_euros(nouveau_montant)}")
             st.rerun()
 
-# Afficher les revenus exceptionnels existants
+# Liste des revenus exceptionnels
 if st.session_state.revenus_exceptionnels:
-    st.subheader("Liste des revenus exceptionnels:")
+    st.markdown("**Liste des revenus exceptionnels:**")
     for idx, montant in enumerate(st.session_state.revenus_exceptionnels):
-        col1, col2 = st.columns([4, 1])
+        col1, col2 = st.columns([5, 1])
         with col1:
-            st.write(f"• Revenu #{idx + 1}: **{formater_euros(montant)}**")
+            st.write(f"#{idx + 1}: **{formater_euros(montant)}**")
         with col2:
-            if st.button("🗑️", key=f"delete_{idx}"):
+            if st.button("🗑️", key=f"del_{idx}", use_container_width=True):
                 st.session_state.revenus_exceptionnels.pop(idx)
                 st.rerun()
 
-st.markdown("---")
+# ============================================================================
+# SECTION 4: CALCULS ET RÉSULTATS
+# ============================================================================
 
-# === SECTION 4: Calculs ===
+st.markdown("---")
 st.header("📊 Résultats")
 
-# Calculer les totaux
+# Calculs
 total_revenus_mensuels = sum(st.session_state.revenus_mensuels)
 total_revenus_exceptionnels = sum(st.session_state.revenus_exceptionnels)
 total_revenus_net = total_revenus_mensuels + total_revenus_exceptionnels
-
-# Calcul avec abattement de 10%
 revenu_avec_abattement = total_revenus_net * 0.90
-
-# Calculer l'impôt dû
 resultat_impot = calculer_impot(revenu_avec_abattement, nb_parts)
-
-# Calculer l'impôt déjà payé
 total_impots_payes = sum(st.session_state.impots_mensuels)
-
-# Calculer le solde (à payer ou à rembourser)
 solde_impot = resultat_impot["impot_total"] - total_impots_payes
 
-# Afficher les résultats principaux
+# Métriques principales (responsive)
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.metric(
-        "💵 Revenus nets totaux",
-        formater_euros(total_revenus_net),
-        help="Somme des revenus mensuels + exceptionnels"
+        "💵 Revenus totaux",
+        formater_euros(total_revenus_net)
     )
 
 with col2:
     st.metric(
         "📉 Revenu imposable",
         formater_euros(revenu_avec_abattement),
-        delta=f"-10% (abattement)",
-        delta_color="normal",
-        help="Revenu après abattement forfaitaire de 10%"
+        delta="-10% abattement"
     )
 
 with col3:
     st.metric(
-        "💰 Impôt dû pour l'année",
-        formater_euros(resultat_impot["impot_total"]),
-        help="Montant total de l'impôt calculé"
+        "💰 Impôt dû",
+        formater_euros(resultat_impot["impot_total"])
     )
 
-# === Nouvelle section: Bilan des prélèvements ===
+# ============================================================================
+# SECTION 5: BILAN PRÉLÈVEMENTS
+# ============================================================================
+
 st.markdown("---")
-st.subheader("🏦 Bilan des Prélèvements à la Source")
+st.subheader("🏦 Bilan des Prélèvements")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.metric(
-        "💳 Impôts déjà payés",
-        formater_euros(total_impots_payes),
-        help="Total des prélèvements à la source effectués"
+        "💳 Déjà payé",
+        formater_euros(total_impots_payes)
     )
 
 with col2:
     st.metric(
-        "💰 Impôt dû",
-        formater_euros(resultat_impot["impot_total"]),
-        help="Montant calculé selon le barème"
+        "💰 À payer",
+        formater_euros(resultat_impot["impot_total"])
     )
 
 with col3:
@@ -288,101 +407,70 @@ with col3:
             "⚠️ Reste à payer",
             formater_euros(solde_impot),
             delta=f"{solde_impot:.2f}",
-            delta_color="inverse",
-            help="Vous devrez payer ce montant supplémentaire"
+            delta_color="inverse"
         )
     elif solde_impot < 0:
         st.metric(
-            "✅ Remboursement attendu",
+            "✅ Remboursement",
             formater_euros(abs(solde_impot)),
             delta=f"{abs(solde_impot):.2f}",
-            delta_color="normal",
-            help="Vous devriez recevoir un remboursement"
+            delta_color="normal"
         )
     else:
-        st.metric(
-            "✅ Solde",
-            "0,00 €",
-            help="Vos prélèvements correspondent exactement à l'impôt dû"
-        )
+        st.metric("✅ Solde", "0,00 €")
 
-# Message contextuel selon le solde
+# Message contextuel
 if solde_impot > 0:
-    st.error(
-        f"⚠️ **Attention :** Vous devrez régler **{formater_euros(solde_impot)}** supplémentaires lors de la régularisation.")
+    st.error(f"⚠️ Vous devrez payer **{formater_euros(solde_impot)}** supplémentaires.")
 elif solde_impot < 0:
-    st.success(
-        f"✅ **Bonne nouvelle :** Vous devriez recevoir un remboursement de **{formater_euros(abs(solde_impot))}**.")
+    st.success(f"✅ Vous recevrez un remboursement de **{formater_euros(abs(solde_impot))}**.")
 else:
-    st.info("✅ **Parfait :** Vos prélèvements sont parfaitement ajustés à votre impôt dû.")
+    st.info("✅ Vos prélèvements sont parfaitement ajustés.")
 
-# Indicateurs supplémentaires
-st.markdown("---")
+# Indicateurs complémentaires
+st.markdown("")
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric(
-        "Revenus mensuels",
-        formater_euros(total_revenus_mensuels)
-    )
+    st.metric("Revenus mensuels", formater_euros(total_revenus_mensuels))
 
 with col2:
-    st.metric(
-        "Revenus exceptionnels",
-        formater_euros(total_revenus_exceptionnels)
-    )
+    st.metric("Revenus except.", formater_euros(total_revenus_exceptionnels))
 
 with col3:
     taux_moyen = (resultat_impot["impot_total"] / revenu_avec_abattement * 100) if revenu_avec_abattement > 0 else 0
-    st.metric(
-        "Taux moyen d'imposition",
-        f"{taux_moyen:.2f}%",
-        help="Impôt / Revenu imposable"
-    )
+    st.metric("Taux moyen", f"{taux_moyen:.2f}%")
 
 with col4:
-    st.metric(
-        "Quotient familial",
-        formater_euros(resultat_impot["quotient"]),
-        help="Revenu imposable / Nombre de parts"
-    )
+    st.metric("Quotient familial", formater_euros(resultat_impot["quotient"]))
 
-# === SECTION 5: Détail du calcul par tranche ===
+# ============================================================================
+# SECTION 6: DÉTAIL DU CALCUL
+# ============================================================================
+
 if revenu_avec_abattement > 0:
     st.markdown("---")
-    st.header("📋 Détail du Calcul par Tranche")
+    with st.expander("📋 Détail du calcul par tranche"):
+        st.info(f"💡 Calcul basé sur **{nb_parts} part(s)** - Quotient: {formater_euros(resultat_impot['quotient'])}")
 
-    # Correction : Séparer la construction du message
-    info_msg = f"💡 **Calcul basé sur {nb_parts} part(s) fiscale(s)**"
-    info_msg += f"\n\nQuotient familial: {formater_euros(resultat_impot['quotient'])}"
-    st.info(info_msg)
+        df_tranches = pd.DataFrame(resultat_impot["detail_tranches"])
+        if not df_tranches.empty:
+            df_tranches['base'] = df_tranches['base'].apply(formater_euros)
+            df_tranches['impot'] = df_tranches['impot'].apply(formater_euros)
+            df_tranches.columns = ["Tranche", "Taux", "Base imposable", "Impôt"]
 
-    # Créer un DataFrame pour afficher les tranches
-    df_tranches = pd.DataFrame(resultat_impot["detail_tranches"])
+            st.dataframe(df_tranches, use_container_width=True, hide_index=True)
 
-    if not df_tranches.empty:
-        df_tranches['base'] = df_tranches['base'].apply(lambda x: formater_euros(x))
-        df_tranches['impot'] = df_tranches['impot'].apply(lambda x: formater_euros(x))
+            st.success(f"**Impôt par part:** {formater_euros(resultat_impot['impot_par_part'])}")
+            st.success(f"**Impôt total ({nb_parts} part(s)):** {formater_euros(resultat_impot['impot_total'])}")
 
-        df_tranches.columns = ["Tranche", "Taux", "Base imposable", "Impôt"]
+# ============================================================================
+# SECTION 7: RÉCAPITULATIF MENSUEL
+# ============================================================================
 
-        st.dataframe(
-            df_tranches,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.success(f"**Impôt calculé pour 1 part:** {formater_euros(resultat_impot['impot_par_part'])}")
-        st.success(f"**Impôt total pour {nb_parts} part(s):** {formater_euros(resultat_impot['impot_total'])}")
-
-# === SECTION 6: Récapitulatif mensuel ===
-st.markdown("---")
-with st.expander("📊 Voir le récapitulatif mensuel détaillé"):
-    st.subheader("Récapitulatif mois par mois")
-
-    # Créer un DataFrame récapitulatif
+with st.expander("📊 Récapitulatif mensuel détaillé"):
     recap_data = []
-    for i, mois_nom in enumerate(mois):
+    for i, mois_nom in enumerate(MOIS):
         recap_data.append({
             "Mois": mois_nom,
             "Revenu net": formater_euros(st.session_state.revenus_mensuels[i]),
@@ -392,38 +480,65 @@ with st.expander("📊 Voir le récapitulatif mensuel détaillé"):
     df_recap = pd.DataFrame(recap_data)
     st.dataframe(df_recap, use_container_width=True, hide_index=True)
 
-    # Ligne de total
-    st.markdown("### Totaux")
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Total revenus mensuels", formater_euros(total_revenus_mensuels))
+        st.metric("Total revenus", formater_euros(total_revenus_mensuels))
     with col2:
-        st.metric("Total impôts prélevés", formater_euros(total_impots_payes))
+        st.metric("Total prélevé", formater_euros(total_impots_payes))
 
-# === SECTION 7: Barème d'imposition ===
-st.markdown("---")
-with st.expander("📖 Voir le barème d'imposition 2024"):
-    st.markdown(f"### Barème de l'impôt sur le revenu {annee}")
+# ============================================================================
+# SECTION 8: BARÈME D'IMPOSITION
+# ============================================================================
+
+with st.expander("📖 Barème d'imposition 2024"):
+    st.markdown(f"### Barème de l'impôt {annee}")
 
     for tranche in TRANCHES_IMPOSITION:
         if tranche['max'] == float('inf'):
-            montant_min = f"{tranche['min']:,.0f}".replace(",", " ")
-            st.markdown(f"- **Plus de {montant_min} €** → **{tranche['label']}**")
+            st.markdown(f"- Plus de **{tranche['min']:,.0f} €** → **{tranche['label']}**".replace(",", " "))
         else:
-            montant_min = f"{tranche['min']:,.0f}".replace(",", " ")
-            montant_max = f"{tranche['max']:,.0f}".replace(",", " ")
-            st.markdown(f"- **De {montant_min} € à {montant_max} €** → **{tranche['label']}**")
+            st.markdown(
+                f"- De **{tranche['min']:,.0f} €** à **{tranche['max']:,.0f} €** → **{tranche['label']}**".replace(",",
+                                                                                                                   " "))
 
-    st.info("ℹ️ Ce barème s'applique au quotient familial (revenu imposable / nombre de parts)")
+    st.info("ℹ️ Barème appliqué au quotient familial (revenu imposable / nombre de parts)")
 
-# === SECTION 8: Réinitialisation ===
+# ============================================================================
+# SECTION 9: ACTIONS
+# ============================================================================
+
 st.markdown("---")
-if st.button("🔄 Réinitialiser tous les champs", type="secondary", on_click=reinitialiser):
-    st.success("✅ Tous les champs ont été réinitialisés!")
-    st.rerun()
+col1, col2 = st.columns(2)
 
+with col1:
+    if st.button("🔄 Réinitialiser", type="secondary", use_container_width=True):
+        reinitialiser()
+        st.success("✅ Données réinitialisées!")
+        st.rerun()
 
-# Footer
+with col2:
+    # Possibilité d'export CSV
+    if total_revenus_net > 0:
+        recap_export = pd.DataFrame({
+            "Catégorie": ["Revenus mensuels", "Revenus exceptionnels", "Total revenus nets",
+                          "Revenu imposable (après abattement)", "Impôt dû", "Impôt déjà payé", "Solde"],
+            "Montant (€)": [total_revenus_mensuels, total_revenus_exceptionnels, total_revenus_net,
+                            revenu_avec_abattement, resultat_impot["impot_total"], total_impots_payes, solde_impot]
+        })
+
+        csv = recap_export.to_csv(index=False, encoding='utf-8')
+        st.download_button(
+            "📥 Télécharger le résumé",
+            data=csv,
+            file_name=f"impots_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+# ============================================================================
+# FOOTER
+# ============================================================================
+
 st.markdown("---")
-st.markdown("*💡 Calculateur d'impôts - Barème 2024 - France*")
-st.caption("⚠️ Cet outil est fourni à titre indicatif. Pour un calcul officiel, consultez le site des impôts.")
+st.markdown("*💰 Calculateur d'impôts - Barème 2024 - France*")
+st.caption("⚠️ Outil indicatif. Pour un calcul officiel, consultez impots.gouv.fr")
