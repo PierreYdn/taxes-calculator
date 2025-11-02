@@ -352,8 +352,10 @@ if revenu_avec_abattement > 0:
     st.markdown("---")
     st.header("📋 Détail du Calcul par Tranche")
 
-    st.info(f"💡 **Calcul basé sur {nb_parts} part(s) fiscale(s)**\n\n"
-            f"Quotient familial: {formater_euros(resultat_impot['quotient'])}")
+    # Correction : Séparer la construction du message
+    info_msg = f"💡 **Calcul basé sur {nb_parts} part(s) fiscale(s)**"
+    info_msg += f"\n\nQuotient familial: {formater_euros(resultat_impot['quotient'])}"
+    st.info(info_msg)
 
     # Créer un DataFrame pour afficher les tranches
     df_tranches = pd.DataFrame(resultat_impot["detail_tranches"])
@@ -405,9 +407,12 @@ with st.expander("📖 Voir le barème d'imposition 2024"):
 
     for tranche in TRANCHES_IMPOSITION:
         if tranche['max'] == float('inf'):
-            st.markdown(f"- **Plus de {tranche['min']:,.0f} €** → **{tranche['label']}**")
+            montant_min = f"{tranche['min']:,.0f}".replace(",", " ")
+            st.markdown(f"- **Plus de {montant_min} €** → **{tranche['label']}**")
         else:
-            st.markdown(f"- **De {tranche['min']:,.0f} € à {tranche['max']:,.0f} €** → **{tranche['label']}**")
+            montant_min = f"{tranche['min']:,.0f}".replace(",", " ")
+            montant_max = f"{tranche['max']:,.0f}".replace(",", " ")
+            st.markdown(f"- **De {montant_min} € à {montant_max} €** → **{tranche['label']}**")
 
     st.info("ℹ️ Ce barème s'applique au quotient familial (revenu imposable / nombre de parts)")
 
